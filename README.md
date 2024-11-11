@@ -26,7 +26,9 @@ The components were connected as given in the schematic (index 1) and described 
 Using the code provided (index 2), the core features of controlling LEDs and monitoring environmental conditions with the DHT11 sensor were implemented.
 
 ### 3.1 LED Control via Push Button
-The red LED is programmed to toggle on and off with each press of the push button, utilizing debounce logic to detect a state change. This involves comparing the button state with its previous state, allowing toggling only when a press is newly detected. The white LED pin is reserved for additional functionalities or extensions.
+The red LED is programmed to toggle on and off with each press of the push button, utilizing debounce logic to detect a state change. This involves comparing the button state with its previous state, allowing toggling only when a press is newly detected.
+To be precise, we implemented this by utilizing an if-else condition within the void loop function. This approach activates the appropriate response based on the button's state, which can be either high or low. Since the button is configured with a pull-up resistor, a high state indicates that the button is not pressed, while a low state means that the button is pressed.
+The white LED pin is reserved for additional functionalities or extensions.
 
 ### 3.2 Temperature and Humidity Data Collection with DHT11
 The DHT11 sensor provided both humidity and temperature data via a single data line connected to the ESP32. The `DHT.h` library was used to simplify data acquisition, providing a straightforward API to retrieve temperature and humidity values. Temperature was read in Celsius, and humidity was recorded as a percentage, with each value displayed in the Serial Monitor. Error handling for sensor reads ensured that invalid data (resulting from sensor noise or connection issues) were flagged.
@@ -46,6 +48,7 @@ Humidity and temperature data were tested under varying environmental conditions
 Potential issues such as incorrect wiring, insufficient grounding, or code errors were systematically debugged. Notably;
 1. LED not toggling: Fixed by verifying GPIO pin assignment and ensuring proper debouncing.
 2. Sensor read errors: Resolved by checking sensor connections and verifying the DHT11 library.
+3. Connectivity problems: We faced some connectivity problems with the given board. To be precise, the Arduino IDE did not recognize our device. After some research, we found a solution, which was to use an additional driver.
 
 ## 5.0 Conclusion
 The ESP32 setup provided practical experience with IoT concepts, sensor integration, and microcontroller programming. The successful implementation of the LED control and environmental sensing builds a foundational understanding of IoT applications. This groundwork prepares for the next stages, including MQTT implementation and security strategy design, further expanding the IoT system’s capabilities.
