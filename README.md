@@ -37,6 +37,9 @@ The DHT11 sensor provided both humidity and temperature data via a single data l
 Data collected from the DHT11 sensor are displayed on the Serial Monitor in real time, providing insight into the immediate environment. Temperature and humidity readings are updated regularly, and error messages to signal a sensor readings fail.
 
 ## 4.0 Testing and Validation
+To install the setup environment, you have to:
+* Install the ESP32 Board in Arduino IDE. The description of the steps to do that are available [here](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/).
+* Install the library necessary to get data from the DHT sensor. Open your Arduino IDE and go to Sketch > Include Library > Manage Libraries. The Library Manager should open. Search for “DHT” on the Search box and install the DHT library from Adafruit.
 
 ### 4.1 LED and Button Test
 To validate LED functionality, the push button was pressed multiple times to confirm toggling behavior. Debouncing was verified by ensuring only one state change per press.
