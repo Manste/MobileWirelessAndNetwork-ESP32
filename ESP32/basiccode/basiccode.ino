@@ -9,8 +9,9 @@
 DHT dht(DHT_PIN, DHT_TYPE); // Initialize DHT sensor
 
 bool redLedState = false; // Variable to store LED state
-bool buttonState = false; // Variable to store last button state
-bool lastButtonState = false;
+bool whiteLedState = false; // Variable to store LED state
+bool buttonState = false; 
+bool lastButtonState = false;// Variable to store last button state of the red led
 
 void setup() {
   Serial.begin(9600); // Initialize serial communication
@@ -19,6 +20,7 @@ void setup() {
   pinMode(WHITE_LED_PIN, OUTPUT); // Set LED pin as output
   pinMode(BUTTON_PIN, INPUT_PULLUP); // Set button pin as input with internal pull-up
   digitalWrite(RED_LED_PIN, LOW); // Start with the LED off
+  digitalWrite(WHITE_LED_PIN, LOW); // Start with the LED off
   
   dht.begin(); // Start the DHT sensor
 }
@@ -30,7 +32,9 @@ void loop() {
   if (buttonState != lastButtonState) {
     if (buttonState == LOW) { // Check if the button is pressed (LOW because of pull-up)
       redLedState = !redLedState; // Toggle LED state
+      whiteLedState = redLedState; // Toggle LED state
       digitalWrite(RED_LED_PIN, redLedState ? HIGH : LOW); // Update LED
+      digitalWrite(WHITE_LED_PIN, !redLedState ? HIGH : LOW); // Update LED
     }    
     lastButtonState = buttonState; // Save the current button state
   }
