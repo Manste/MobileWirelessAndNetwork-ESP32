@@ -1,4 +1,4 @@
-#include <DHT.h>
+#include "DHT.h"
 
 #define DHTPIN 14     // Pin connected to DHT11
 #define DHTTYPE DHT11 // DHT11 sensor type

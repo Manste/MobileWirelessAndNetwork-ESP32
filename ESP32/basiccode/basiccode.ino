@@ -11,6 +11,7 @@ DHT dht(DHT_PIN, DHT_TYPE); // Initialize DHT sensor
 bool redLedState = false; // Variable to store LED state
 bool whiteLedState = false; // Variable to store LED state
 bool lastButtonState = false;// Variable to store last button state of the red led
+bool buttonState = false;
 
 void setup() {
   Serial.begin(9600); // Initialize serial communication
