@@ -1,4 +1,4 @@
-# Threat Model
+# Threat Model (pssible threat model if mqtt and node-red are used for our server and security implementation)
 ## a. Communication Security
 ### Threats:
 + **Eavesdropping:** MQTT by default transmits data in plaintext, making it
