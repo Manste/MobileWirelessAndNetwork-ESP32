@@ -1,11 +1,11 @@
 # Threat Model
 ## a. Communication Security
 ### Threats:
-**Eavesdropping:** MQTT by default transmits data in plaintext, making it
++ **Eavesdropping:** MQTT by default transmits data in plaintext, making it
 vulnerable to interception.
-**Man-in-the-Middle (MitM) Attacks:** An attacker could intercept and modify data
++ **Man-in-the-Middle (MitM) Attacks:** An attacker could intercept and modify data
 during transmission.
-**Replay Attacks:** Old messages can be replayed to create confusion in data
++ **Replay Attacks:** Old messages can be replayed to create confusion in data
 analysis.
 ### Mitigations:
 + Use TLS/SSL encryption to secure MQTT communications between ESP32
@@ -16,11 +16,11 @@ legitimacy.
   
 ## b. Device Security (ESP32)
 ### Threats:
-**Physical Tampering:** Physical access to ESP32 devices can allow attackers to
++ **Physical Tampering:** Physical access to ESP32 devices can allow attackers to
 inject malicious firmware or extract sensitive data.
-**Firmware Vulnerabilities:** Insecure or outdated firmware may contain
++ **Firmware Vulnerabilities:** Insecure or outdated firmware may contain
 vulnerabilities.
-**Malicious Code Injection:** Attackers could inject malware into the device’s
++ **Malicious Code Injection:** Attackers could inject malware into the device’s
 memory.
 ### Mitigations:
 + Use secure boot on the ESP32 to prevent unauthorized firmware changes.
@@ -30,11 +30,11 @@ vulnerabilities.
 
 ## c. MQTT Server Security
 ### Threats:
-**Denial of Service (DoS) Attacks:** An attacker could flood the server with
++ **Denial of Service (DoS) Attacks:** An attacker could flood the server with
 requests, leading to downtime.
-**Unauthorized Access:** If the MQTT server is not securely configured,
++ **Unauthorized Access:** If the MQTT server is not securely configured,
 unauthorized devices or users could connect.
-**Data Injection:** An attacker could publish incorrect temperature/humidity data.
++ **Data Injection:** An attacker could publish incorrect temperature/humidity data.
 ### Mitigations:
 + Use access control lists (ACLs) to restrict topics that each client can access.
 + Ensure the MQTT server supports rate-limiting and IP blocking.
@@ -43,10 +43,10 @@ the server.
 
 ## d. Data Integrity and Confidentiality in Database
 ### Threats:
-**Data Leakage:** Sensitive temperature and humidity data could be exposed.
-**Data Tampering:** Unauthorized users could modify or delete data, affecting
++ **Data Leakage:** Sensitive temperature and humidity data could be exposed.
++ **Data Tampering:** Unauthorized users could modify or delete data, affecting
 historical records.
-**Insider Threats:** Privileged users might misuse their access.
++ **Insider Threats:** Privileged users might misuse their access.
 ### Mitigations:
 + Encrypt data at rest and in transit between the MQTT server and database.
 + Apply role-based access control (RBAC) for database access.
@@ -54,9 +54,9 @@ historical records.
   
 ## e. Dashboard Security
 ### Threats:
-**Cross-Site Scripting (XSS) and SQL Injection:** If the dashboard is accessible
++ **Cross-Site Scripting (XSS) and SQL Injection:** If the dashboard is accessible
 via a web interface, these vulnerabilities could expose the system.
-**Unauthorized Access:** If authentication isn’t enforced, attackers might access
++ **Unauthorized Access:** If authentication isn’t enforced, attackers might access
 or manipulate data on the dashboard.
 ### Mitigations:
 + Implement input validation and output encoding to prevent XSS and SQL
@@ -67,8 +67,8 @@ dashboard.
 
 ## f. Network Security
 ### Threats:
-**Network Sniffing:** Open networks could allow attackers to sniff MQTT traffic.
-**Rogue Access Points:** Attackers could set up fake access points to intercept
++ **Network Sniffing:** Open networks could allow attackers to sniff MQTT traffic.
++ **Rogue Access Points:** Attackers could set up fake access points to intercept
 ESP32 communications.
 ### Mitigations:
 + Use a secure network (WPA2/WPA3) for device connectivity.
@@ -78,10 +78,10 @@ intrusions.
 
 ## g. Availability and Continuity Risks
 ### Threats:
-**System Downtime:** Outages in any system component (MQTT server, database,
++ **System Downtime:** Outages in any system component (MQTT server, database,
 dashboard) can disrupt data flow.
-**Data Loss:** Loss of historical data could impact monitoring and analysis.
++ **Data Loss:** Loss of historical data could impact monitoring and analysis.
 ### Mitigations:
-* Set up automated backups for historical data.
-* Use failover configurations and high-availability setups for critical servers.
-* Implement alert systems for rapid response to component failure.
++ Set up automated backups for historical data.
++ Use failover configurations and high-availability setups for critical servers.
++ Implement alert systems for rapid response to component failure.
