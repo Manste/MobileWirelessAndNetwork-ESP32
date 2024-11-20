@@ -1,0 +1,1 @@
+To upload this code in your ESP32, you have to install `Adafruit MQTT Library` from your Library Manager in your IDE. 
