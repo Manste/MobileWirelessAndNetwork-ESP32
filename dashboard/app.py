@@ -1,111 +1,191 @@
 import paho.mqtt.client as mqtt
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import Tk, Scale, Label, HORIZONTAL, Frame
+from datetime import datetime
 from matplotlib.animation import FuncAnimation
-import json
-import time
+import threading
 
-# MQTT Broker settings
-MQTT_BROKER = "192.168.118.56"  # IP address of your MQTT broker
-MQTT_PORT = 8008  # Port of your MQTT broker
-MQTT_TOPIC = "esp1/sensorData"  # The MQTT topic to subscribe to
+# MQTT broker configuration
+BROKER = "192.168.64.56"
+PORT = 8008
 
-# Global variables for plotting
-temperature_data = []
-humidity_data = []
-time_data = []
+# Topics
+ESP_TOPICS = {
+    "esp1": {"temperature": "esp1/temperature", "humidity": "esp1/humidity", "threshold": "esp1/threshold"},
+    "esp2": {"temperature": "esp2/temperature", "humidity": "esp2/humidity", "threshold": "esp2/threshold"},
+}
 
-# Create a figure and axis for plotting
-fig, (ax_temp, ax_hum) = plt.subplots(2, 1, figsize=(10, 8))
+# Data storage with separate time lists
+data = {
+    "esp1": {
+        "temperature": [], 
+        "humidity": [], 
+        "threshold": 50,
+        "time_temperature": [], 
+        "time_humidity": []
+    },
+    "esp2": {
+        "temperature": [], 
+        "humidity": [], 
+        "threshold": 50,
+        "time_temperature": [], 
+        "time_humidity": []
+    },
+}
 
-# Plot configuration
-ax_temp.set_title("Temperature Over Time")
-ax_temp.set_xlabel("Time")
-ax_temp.set_ylabel("Temperature (°C)")
-ax_hum.set_title("Humidity Over Time")
-ax_hum.set_xlabel("Time")
-ax_hum.set_ylabel("Humidity (%)")
+# Create a lock to handle data synchronization
+data_lock = threading.Lock()
 
+# MQTT callbacks
 def on_connect(client, userdata, flags, rc):
-    print("Connected to MQTT Broker with result code " + str(rc))
-    # Subscribe to the topic
-    client.subscribe(MQTT_TOPIC)
+    if rc == 0:
+        print("Connected to MQTT Broker")
+        for esp, topics in ESP_TOPICS.items():
+            client.subscribe(topics["temperature"])
+            client.subscribe(topics["humidity"])
+    else:
+        print(f"Failed to connect, return code {rc}")
 
 def on_message(client, userdata, msg):
-    # Callback for when a message is received from the broker
-    try:
-        # Parse the JSON payload
-        payload = json.loads(msg.payload)
-        temperature = payload.get("temperature", None)
-        humidity = payload.get("humidity", None)
-        
-        # Check if the data is valid
-        if temperature is not None and humidity is not None:
-            print(f"Received Data - Temperature: {temperature} °C, Humidity: {humidity}%")
+    esp_name = None
+    value_type = None
+    for esp, topics in ESP_TOPICS.items():
+        if msg.topic == topics["temperature"]:
+            esp_name = esp
+            value_type = "temperature"
+        elif msg.topic == topics["humidity"]:
+            esp_name = esp
+            value_type = "humidity"
 
-            # Append the new data to the lists
-            current_time = time.time()  # Use current time as x-axis
-            time_data.append(current_time)
-            temperature_data.append(temperature)
-            humidity_data.append(humidity)
+    if esp_name and value_type:
+        try:
+            value = float(msg.payload.decode())
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            with data_lock:
+                # Choose the correct time list
+                time_key = f"time_{value_type}"
 
-    except Exception as e:
-        print(f"Error processing message: {e}")
+                # Synchronize lengths
+                if len(data[esp_name][time_key]) >= 100:  # Limit to 100 points
+                    data[esp_name][time_key].pop(0)
+                    data[esp_name][value_type].pop(0)
 
-def on_disconnect(client, userdata, rc):
-    print("Disconnected from MQTT Broker with result code " + str(rc))
+                # Add new data
+                data[esp_name][time_key].append(timestamp)
+                data[esp_name][value_type].append(value)
 
+        except ValueError:
+            print(f"Invalid data received on {msg.topic}: {msg.payload.decode()}")
+
+
+# MQTT Client
+mqtt_client = mqtt.Client()
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.connect(BROKER, PORT)
+
+mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
+mqtt_thread.daemon = True  # Ensure the thread exits when the main program exits
+mqtt_thread.start()
+
+# Function to update the threshold and publish to the appropriate topic
+def update_threshold(esp, value):
+    with data_lock:
+        data[esp]["threshold"] = int(value)
+    topic = ESP_TOPICS[esp]["threshold"]
+    mqtt_client.publish(topic, str(value))
+    print(f"Updated {esp} threshold to {value} and sent to {topic}")
+
+# Tkinter GUI with integrated sliders and plots
+root = Tk()
+root.title("ESP Sensor Monitoring")
+
+# Create a figure for the plots
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))  # 2x2 grid for temperature/humidity of 2 ESPs
+esp_axes = {
+    "esp1": {"temperature": axes[0, 0], "humidity": axes[1, 0]},
+    "esp2": {"temperature": axes[0, 1], "humidity": axes[1, 1]},
+}
+
+# Add the matplotlib figure to the Tkinter window
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas_widget = canvas.get_tk_widget()
+canvas_widget.grid(row=0, column=0, columnspan=2)
+
+# Add sliders for threshold control
+slider_frame = Frame(root)
+slider_frame.grid(row=1, column=0, columnspan=2, pady=10)
+
+for idx, esp in enumerate(ESP_TOPICS.keys()):
+    Label(slider_frame, text=f"{esp.upper()} Humidity Threshold").grid(row=idx, column=0, padx=10, pady=10)
+    slider = Scale(
+        slider_frame,
+        from_=0,
+        to=100,
+        resolution=5,  # Step size
+        orient=HORIZONTAL,
+        tickinterval=10,  # Show tick marks every 10
+        length=400,
+        command=lambda value, esp=esp: update_threshold(esp, value),
+    )
+    slider.set(data[esp]["threshold"])
+    slider.grid(row=idx, column=1, padx=10, pady=10)
+
+# Function to animate plots
 def animate(i):
-    # This function will be called periodically by FuncAnimation to update the plot
+    with data_lock:
+        for esp, sensors in data.items():
+            # Plot temperature
+            if len(sensors["time_temperature"]) == len(sensors["temperature"]):
+                temp_ax = esp_axes[esp]["temperature"]
+                temp_ax.clear()
+                temp_ax.plot(
+                    sensors["time_temperature"], 
+                    sensors["temperature"], 
+                    label="Temperature (°C)", 
+                    color="blue"
+                )
+                temp_ax.set_title(f"{esp.upper()} Temperature")
+                temp_ax.set_xlabel("Time")
+                temp_ax.set_ylabel("Temperature (°C)")
+                temp_ax.legend(loc="upper right")
+                temp_ax.tick_params(axis="x", rotation=45)
+            else:
+                print(f"Skipping temperature plot for {esp} due to mismatched lengths")
 
-    # Update the plots
-    ax_temp.clear()
-    ax_hum.clear()
+            # Plot humidity
+            if len(sensors["time_humidity"]) == len(sensors["humidity"]):
+                hum_ax = esp_axes[esp]["humidity"]
+                hum_ax.clear()
+                hum_ax.plot(
+                    sensors["time_humidity"], 
+                    sensors["humidity"], 
+                    label="Humidity (%)", 
+                    color="green"
+                )
+                hum_ax.axhline(
+                    sensors["threshold"], 
+                    color="red", 
+                    linestyle="--", 
+                    label="Threshold"
+                )
+                hum_ax.set_title(f"{esp.upper()} Humidity")
+                hum_ax.set_xlabel("Time")
+                hum_ax.set_ylabel("Humidity (%)")
+                hum_ax.legend(loc="upper right")
+                hum_ax.tick_params(axis="x", rotation=45)
+            else:
+                print(f"Skipping humidity plot for {esp} due to mismatched lengths")
 
-    ax_temp.plot(time_data, temperature_data, label="Temperature (°C)", color='red')
-    ax_hum.plot(time_data, humidity_data, label="Humidity (%)", color='blue')
+    fig.tight_layout()
+    canvas.draw()
 
-    # Set titles and labels again after clearing
-    ax_temp.set_title("Temperature Over Time")
-    ax_temp.set_xlabel("Time")
-    ax_temp.set_ylabel("Temperature (°C)")
 
-    ax_hum.set_title("Humidity Over Time")
-    ax_hum.set_xlabel("Time")
-    ax_hum.set_ylabel("Humidity (%)")
+# Ensure animation updates are safely handled
+ani = FuncAnimation(fig, animate, interval=1000)
+plt.tight_layout()
+canvas.draw()
 
-    # Auto format the x-axis
-    plt.xticks(rotation=45)
-
-def main():
-    # Create MQTT client with the latest version of callbacks
-    client = mqtt.Client()
-
-    # Assign the event callbacks using the latest API version
-    client.on_connect = on_connect
-    client.on_message = on_message
-    client.on_disconnect = on_disconnect
-
-    # Connect to the MQTT broker
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
-    # Start the MQTT loop in the background
-    client.loop_start()
-
-    # Set up real-time plot updates with FuncAnimation
-    ani = FuncAnimation(fig, animate, interval=1000)  # Update every 1000 ms (1 second)
-
-    # Display the plot
-    plt.show()
-
-    # Keep the script running to listen for MQTT messages
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Exiting...")
-        client.loop_stop()
-        client.disconnect()
-        plt.close()
-
-if __name__ == "__main__":
-    main()
+# Start the Tkinter mainloop
+root.mainloop()

@@ -12,15 +12,12 @@
 // WiFi credentials
 #define WIFI_SSID        "Nms"
 #define WIFI_PASSWORD    "manououvreferme"
-#define MQTT_SERVER      "192.168.118.56" // your MQTT server address
+#define MQTT_SERVER      "192.168." // your MQTT server address
 #define MQTT_PORT        8008 // Default MQTT port
 #define MQTT_USERNAME    ""                // Leave blank for anonymous vGlrsiXas6m6rB1EeP1F
 #define MQTT_PASSWORD    ""                // Leave blank for anonymous
 
-// LED states
-bool redLedState = false; // Variable to store LED state
-bool whiteLedState = false; // Variable to store LED state
-bool lastButtonState = false;// Variable to store last button state of the red led
+// states
 bool buttonState = false;
 
 
@@ -28,6 +25,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 WiFiClient wifi_client;
 Adafruit_MQTT_Client mqtt(&wifi_client, MQTT_SERVER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD);
 Adafruit_MQTT_Publish data_publisher = Adafruit_MQTT_Publish(&mqtt, "esp1/sensorData");
+Adafruit_MQTT_Publish threshold_publisher = Adafruit_MQTT_Publish(&mqtt, "esp1/thresholdData");
 
 void setup_wifi() {
   delay(10);
@@ -75,14 +73,35 @@ void setup() {
   
   dht.begin(); // Start the DHT sensor
   setup_wifi();
-  reconnect();
 }
+
+void publish(Adafruit_MQTT_Publish &publisher, String s) {
+  if (!publisher.publish(s.c_str())) {
+    Serial.println("Failed to publish data!");
+  } else {
+    Serial.println("Sensor published: " + s);
+  }
+}
+
+void manage_button() {
+  // Button Handling - Toggle LED states when pressed
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    digitalWrite(WHITE_LED_PIN, HIGH); // Turn on LED
+    publish(threshold_publisher, "increase"); // Publish the "increase" message
+  } else {
+    digitalWrite(WHITE_LED_PIN, LOW); // Turn off LED
+  }
+}
+
 
 void loop() {
   // Ensure the MQTT connection
   if (!mqtt.connected()) {
     reconnect();
   }
+
+  // function for increasing the threshold
+  manage_button();
   
   // Temperature and Humidity Reading
   float humidity = dht.readHumidity(); // Read humidity
@@ -101,29 +120,8 @@ void loop() {
     json_payload += "}";
   
     // Publish JSON payload
-    if (!data_publisher.publish(json_payload.c_str())) {
-      Serial.println("Failed to publish sensor data!");
-    } else {
-      Serial.println("Sensor data published: " + json_payload);
-    }
+    publish(data_publisher, json_payload);
   }
-
-  // Button Handling - Toggle LED states when pressed
-  buttonState = digitalRead(BUTTON_PIN) == LOW;  // Button is pressed when LOW
-
-  // If the button state has changed from last state, toggle LEDs
-  if (buttonState != lastButtonState) {
-    if (buttonState == LOW) {
-      // Toggle LED states when button is pressed
-      redLedState = !redLedState;
-      whiteLedState = redLedState;
-      
-      // Update LEDs
-      digitalWrite(RED_LED_PIN, redLedState ? HIGH : LOW);
-      digitalWrite(WHITE_LED_PIN, whiteLedState ? HIGH : LOW);
-    }
-    // Update last button state
-    lastButtonState = buttonState;
-  }
-  delay(2000); // Wait before sending the next update
+  
+  delay(1000); // Wait before sending the next update
 }
