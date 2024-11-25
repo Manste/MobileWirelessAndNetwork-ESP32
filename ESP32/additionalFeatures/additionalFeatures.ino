@@ -9,14 +9,14 @@
 #define DHT_PIN 26
 #define DHT_TYPE DHT11     // Specify DHT11 sensor type
 
-// WiFi credentials
+// Wi-Fi credentials
 #define WIFI_SSID        "Nms"
 #define WIFI_PASSWORD    "manououvreferme"
 
 // MQTT Configuration
 #define MQTT_SERVER      "192.168.64.56" // your MQTT server address
-#define MQTT_PORT        8008 // Default MQTT port
-#define MQTT_USERNAME    ""                // Leave blank for anonymous vGlrsiXas6m6rB1EeP1F
+#define MQTT_PORT        8008 // Default MQTT port (change if necessary)
+#define MQTT_USERNAME    ""                // Leave blank for anonymous
 #define MQTT_PASSWORD    ""                // Leave blank for anonymous
 
 // Device-Specific Topics
@@ -25,8 +25,8 @@
 #define THRESHOLD_TOPIC "esp1/threshold"
 
 // Subscribed Topics for ESP2
-#define OTHER_HUMIDITY_TOPIC "esp1/humidity"
-#define OTHER_THRESHOLD_TOPIC "esp1/threshold"
+#define OTHER_HUMIDITY_TOPIC "esp2/humidity"
+#define OTHER_THRESHOLD_TOPIC "esp2/threshold"
 
 // states
 bool lastButtonState = HIGH;
@@ -70,6 +70,9 @@ void reconnect() {
     int8_t ret = mqtt.connect();
     if (ret == 0) {
       Serial.println("connected!");
+  // Re-subscribe to topics
+    mqtt.subscribe(&other_humidity_subscriber);
+    mqtt.subscribe(&other_threshold_subscriber);
     } else {
       Serial.print("Failed to connect to MQTT broker, error: ");
       Serial.println(mqtt.connectErrorString(ret));
@@ -79,53 +82,12 @@ void reconnect() {
   }
 }
 
-// Unsubscribe from Other Topics
-void unsubscribeFromOtherTopics() {
-  if (isSubscribed) {
-    Serial.println("Unsubscribing from other topics...");
-    mqtt.unsubscribe(&other_humidity_subscriber);
-    mqtt.unsubscribe(&other_threshold_subscriber);
-    
-    currentOtherThreshold = 50.0;
-    currentOtherHumidity = 0.0;
-    digitalWrite(WHITE_LED_PIN, LOW); // Turn off LED to indicate unsubscription
-    digitalWrite(RED_LED_PIN, LOW);
-    isSubscribed = false;
-  }
-}
-
-// Subscribe to Other Topics
-void subscribeToOtherTopics() {
-  if (!isSubscribed) {
-    Serial.println("Subscribing to other topics...");
-    mqtt.subscribe(&other_humidity_subscriber);
-    mqtt.subscribe(&other_threshold_subscriber);
-    digitalWrite(WHITE_LED_PIN, HIGH); // Indicate subscription with LED
-    isSubscribed = true;
-  }
-}
-
-void publishData (Adafruit_MQTT_Publish &publisher, String s) {
+void publishData(Adafruit_MQTT_Publish &publisher, String s) {
   if (!publisher.publish(s.c_str())) {
     Serial.println("Failed to publish data!");
   } else {
     Serial.println("Sensor published: " + s);
   }
-}
-
-// Button Management - Toggle Subscription
-void manageButton() {
-  // Button Handling - Toggle LED states when pressed
-  bool buttonState = digitalRead(BUTTON_PIN);
-
-  if (buttonState == LOW && lastButtonState == HIGH) { // Button press detected
-    if (isSubscribed) {
-      unsubscribeFromOtherTopics();
-    } else {
-      subscribeToOtherTopics();
-    }
-  }
-  lastButtonState = buttonState;
 }
 
 void updateRedLed() {
@@ -135,29 +97,47 @@ void updateRedLed() {
     } else {
       digitalWrite(RED_LED_PIN, LOW);
     }
+  } else {
+    digitalWrite(RED_LED_PIN, LOW);
   }
 }
 
-// Handle MQTT Messages from subscriptions
-void handleMQTTSubscribtions() {
-   if (isSubscribed) {
-      Adafruit_MQTT_Subscribe *subscription;
-      while ((subscription = mqtt.readSubscription(1000))) {
-        if (subscription == &other_humidity_subscriber) {
-          currentOtherThreshold = atof((char *)other_humidity_subscriber.lastread);
-          Serial.print("Received humidity from other ESP: ");
-          Serial.println(currentOtherThreshold);
-          
-        } else if (subscription == &other_threshold_subscriber) {
-          currentOtherThreshold = atoi((char *)other_threshold_subscriber.lastread);
-          Serial.print("Received threshold from other ESP: ");
-          Serial.println(currentOtherThreshold);
-          
-        }
-      }
-   }
-  updateRedLed();
-} 
+void manageButton() {
+   bool buttonState = digitalRead(BUTTON_PIN); // Read the button state
+
+  // Check if the button state has changed
+  if (buttonState != lastButtonState) {
+    if (buttonState == LOW) { // Check if the button is pressed (LOW because of pull-up)
+      isSubscribed = !isSubscribed; // Toggle LED state
+      digitalWrite(WHITE_LED_PIN, isSubscribed ? HIGH : LOW); // Update LED
+      Serial.println(isSubscribed ? "Subscribed!" : "Unsubscribed!");
+      updateRedLed();
+    }    
+    lastButtonState = buttonState; // Save the current button state
+  }
+}
+
+
+
+void humidityCallback(char* payload, uint16_t len) {
+  if (isSubscribed) {
+    payload[len] = '\0';  // Null-terminate payload
+    currentOtherHumidity = atof(payload); // Parse as float
+    Serial.print("Received humidity from other ESP: ");
+    Serial.println(currentOtherHumidity);
+    updateRedLed();
+  }
+}
+
+void thresholdCallback(char* payload, uint16_t len) {
+  if (isSubscribed) {
+    payload[len] = '\0';  // Null-terminate payload
+    currentOtherThreshold = atof(payload); // Parse as float
+    Serial.print("Received threshold from other ESP: ");
+    Serial.println(currentOtherThreshold);
+    updateRedLed();
+  }
+}
 
 void setup() {
   Serial.begin(9600); // Initialize serial communication
@@ -170,9 +150,17 @@ void setup() {
   
   dht.begin(); // Start the DHT sensor
   setup_wifi();
-   
-}
 
+  // Set callback functions
+  other_humidity_subscriber.setCallback(humidityCallback);
+  other_threshold_subscriber.setCallback(thresholdCallback);
+  
+  mqtt.connect();
+
+  // subscribe to topics
+  mqtt.subscribe(&other_humidity_subscriber);
+  mqtt.subscribe(&other_threshold_subscriber);
+}
 
 void loop() {
   // Ensure the MQTT connection
@@ -180,7 +168,8 @@ void loop() {
     reconnect();
   }
 
-  // function for increasing the threshold
+  mqtt.processPackets(2000); // Process incoming messages
+
   manageButton();
   
   // Temperature and Humidity Reading
@@ -194,8 +183,5 @@ void loop() {
     publishData(humidity_publisher, String(humidity));
     publishData(temperature_publisher, String(temperature));
   }
-
-  handleMQTTSubscribtions();
-  
-  delay(1000); // Wait before sending the next update
+  delay(1000);
 }
