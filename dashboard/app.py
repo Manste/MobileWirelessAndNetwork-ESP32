@@ -5,6 +5,7 @@ from tkinter import Tk, Scale, Label, HORIZONTAL, Frame
 from datetime import datetime
 from matplotlib.animation import FuncAnimation
 import threading
+import time
 
 # MQTT broker configuration
 BROKER = "192.168.64.56"
@@ -181,6 +182,21 @@ def animate(i):
     fig.tight_layout()
     canvas.draw()
 
+# Function to continuously publish thresholds every second
+def publish_thresholds():
+    while True:
+        with data_lock:
+            for esp, sensors in data.items():
+                topic = ESP_TOPICS[esp]["threshold"]
+                threshold_value = sensors["threshold"]
+                mqtt_client.publish(topic, str(threshold_value))
+                print(f"Published {esp} threshold: {threshold_value} to {topic}")
+        time.sleep(1)  # Wait for 1 second before the next publish
+
+# Start the threshold publishing thread
+threshold_thread = threading.Thread(target=publish_thresholds)
+threshold_thread.daemon = True  # Ensure this thread exits when the main program exits
+threshold_thread.start()
 
 # Ensure animation updates are safely handled
 ani = FuncAnimation(fig, animate, interval=1000)
