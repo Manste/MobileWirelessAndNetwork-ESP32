@@ -14,19 +14,19 @@
 #define WIFI_PASSWORD    "manououvreferme"
 
 // MQTT Configuration
-#define MQTT_SERVER      "192.168.64.56" // your MQTT server address
+#define MQTT_SERVER      "192.168.129.56" // your MQTT server address
 #define MQTT_PORT        8008 // Default MQTT port (change if necessary)
 #define MQTT_USERNAME    ""                // Leave blank for anonymous
 #define MQTT_PASSWORD    ""                // Leave blank for anonymous
 
 // Device-Specific Topics
-#define HUMIDITY_TOPIC "esp1/humidity"
-#define TEMPERATURE_TOPIC "esp1/temperature"
-#define THRESHOLD_TOPIC "esp1/threshold"
+#define HUMIDITY_TOPIC "esp2/humidity"
+#define TEMPERATURE_TOPIC "esp2/temperature"
+#define THRESHOLD_TOPIC "esp2/threshold"
 
 // Subscribed Topics for ESP2
-#define OTHER_HUMIDITY_TOPIC "esp2/humidity"
-#define OTHER_THRESHOLD_TOPIC "esp2/threshold"
+#define OTHER_HUMIDITY_TOPIC "esp1/humidity"
+#define OTHER_THRESHOLD_TOPIC "esp1/threshold"
 
 // states
 bool lastButtonState = HIGH;

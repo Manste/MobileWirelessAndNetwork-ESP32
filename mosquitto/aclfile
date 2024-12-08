@@ -1,0 +1,19 @@
+user esp1
+topic write esp1/temperature
+topic write esp1/humidity
+topic read esp2/humidity
+topic read esp2/threshold
+
+user esp2
+topic write esp2/temperature
+topic write esp2/humidity
+topic read esp1/humidity
+topic read esp1/threshold
+
+user server
+topic read esp1/temperature
+topic read esp1/humidity
+topic read esp2/temperature
+topic read esp2/humidity
+topic write esp1/threshold
+topic write esp2/threshold

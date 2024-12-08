@@ -8,8 +8,25 @@ import threading
 import time
 
 # MQTT broker configuration
-BROKER = "192.168.64.56"
+BROKER = "192.168.129.56"
 PORT = 8008
+USERNAME = "server"
+PASSWORD = "nxPd3T25Jt2eYDTT82n9d78xQ" 
+
+KEYS = {
+    "esp1": {
+        "encrypt": "CmvgVtFuSNmQMCaRmLzzrCaPBFphSuYr",
+        "hash": "LEaiLUukPRTGtPQWhMuxdcVwEjgrcxBG"
+    }, 
+    "esp2": {
+        "encrypt": "dgCGZGDCRwEVSczHrttbcpMALwweVxnP",
+        "hash": "JAYWBfudauenBjnPUENgnEeYXmLnwSjN"
+    }, 
+    "server": {
+        "encrypt": "xSjxNewFTELfqmDdbgAWrDkTfNAfNYNs",
+        "hash": "SzMVxXdSkmvmxmFGHrUJQspxHvCxKqFW"
+    }
+}
 
 # Topics
 ESP_TOPICS = {
@@ -82,6 +99,10 @@ def on_message(client, userdata, msg):
 
 # MQTT Client
 mqtt_client = mqtt.Client()
+
+# Set username and password for authentication
+mqtt_client.username_pw_set(USERNAME, PASSWORD)
+
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 mqtt_client.connect(BROKER, PORT)
