@@ -1,14 +1,15 @@
+
 #include "DHT.h"
 #include "WiFi.h"
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
 #include "mbedtls/aes.h"
-#include "mbedtls/md.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
 #include "mbedtls/sha256.h"
-#include "mbedtls/cipher.h"
 
 #define BLOCK_SIZE 16
-#define OUTPUT_SIZE 64
 
 #define RED_LED_PIN 32
 #define WHITE_LED_PIN 33
@@ -21,10 +22,10 @@
 #define WIFI_PASSWORD    "manououvreferme"
 
 // MQTT Configuration
-#define MQTT_SERVER      "192.168.76.56" // your MQTT server address
-#define MQTT_PORT        8008 // Default MQTT port 
-#define MQTT_USERNAME    "esp2" //"esp1"                // esp2 
-#define MQTT_PASSWORD    "3wbjiA9bU837e6UBv5hE8AP5S" //"HUS49mVnyF54CT8vh889k8Aay"// 3wbjiA9bU837e6UBv5hE8AP5S 
+#define MQTT_SERVER      "192.168.79.56" // your MQTT server address
+#define MQTT_PORT        8008 // Default MQTT port
+#define MQTT_USERNAME    "esp1"                // esp2
+#define MQTT_PASSWORD    "HUS49mVnyF54CT8vh889k8Aay"// 3wbjiA9bU837e6UBv5hE8AP5S
 
 // Device-Specific Topics
 #define HUMIDITY_TOPIC "esp1/humidity"
@@ -44,18 +45,22 @@
 #define SERVER_ENCRYPT "xSjxNewFTELfqmDdbgAWrDkTfNAfNYNs"
 #define SERVER_HASH "SzMVxXdSkmvmxmFGHrUJQspxHvCxKqFW"
 
-// AES and HMAC Keys
-const char* aes_key = ESP2_ENCRYPT;
-const char* hmac_key = ESP2_HASH;
+unsigned char* esp1Key;
+unsigned char* esp2Key;
+unsigned char* serverKey;
+
+unsigned char* esp1HashKey;
+unsigned char* esp2HashKey;
+unsigned char* serverHashKey;
 
 // states
 bool lastButtonState = HIGH;
 bool isSubscribed = false;
 float currentOtherThreshold = 50.0;
 float currentOtherHumidity = 0.0;
+bool isHandshaked = false;
 
-// Nonce (Incrementing Counter)
-uint32_t nonce = 0;
+mbedtls_entropy_context entropy;
 
 // MQTT Client
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -93,11 +98,9 @@ void reconnect() {
     int8_t ret = mqtt.connect();
     if (ret == 0) {
       Serial.println("connected!");
-      if(isSubscribed) {
-        // Re-subscribe to topics
-        mqtt.subscribe(&other_humidity_subscriber);
-        mqtt.subscribe(&other_threshold_subscriber);
-      }
+      // Re-subscribe to topics
+      mqtt.subscribe(&other_humidity_subscriber);
+      mqtt.subscribe(&other_threshold_subscriber);
     } else {
       Serial.print("Failed to connect to MQTT broker, error: ");
       Serial.println(mqtt.connectErrorString(ret));
@@ -107,202 +110,186 @@ void reconnect() {
   }
 }
 
-// Generate a random initial nonce at startup
-void initializeNonce() {
-  nonce = random(1, 0xFFFFFF); // Generate a random 24-bit integer
-}
-
-void incrementNonce() {
-  nonce++;  // Increment the nonce
-}
-
-// Function to apply PKCS7 padding
-void addPadding(uint8_t* data, size_t& len, size_t block_size = BLOCK_SIZE) {
-    size_t padding_needed = block_size - (len % block_size);
-    for (size_t i = 0; i < padding_needed; i++) {
-        data[len + i] = padding_needed;
+// Pad input to a fixed size using custom '+' padding
+void padInput(String& input, char* paddedInput) {
+    size_t inputLength = input.length();
+    size_t totalLength = ((inputLength / BLOCK_SIZE) + 1) * BLOCK_SIZE;
+    memcpy(paddedInput, input.c_str(), inputLength); // Copy the input data
+    // Add '+' padding
+    for (size_t i = inputLength; i < totalLength; i++) {
+        paddedInput[i] = '?';
     }
-    len += padding_needed;
+    paddedInput[totalLength] = '\0'; // Null-terminate the padded input
 }
 
-// Function to remove PKCS7 padding
-void removePadding(uint8_t* data, size_t len) {
-    size_t padding_length = data[len - 1];
-    len -= padding_length;
-}
-
-String byteArrayToHex(const uint8_t* byteArray, size_t len) {
-    String hexString = "";
-    for (size_t i = 0; i < len; i++) {
-        hexString += String(byteArray[i], HEX);;
+void unpadInput(char* paddedInput, char* unpaddedOutput) {
+    size_t unpaddedLength = 0;
+    // Find the position of the first '+' character
+    for (size_t i = 0; i < strlen(paddedInput); i++) {
+        if (paddedInput[i] == '?') {
+            break;
+        }
+        unpaddedLength++;
     }
-    return hexString;
-}
-
-// HMAC-SHA256
-String computeHMAC(const uint8_t *key, byte* iv, String& str) {    
-    // Prepare the input data with padding
-    uint8_t input[OUTPUT_SIZE] = {0};
-    str.toCharArray((char*)input, sizeof(input));
+    // Allocate memory for the unpadded output
+    unpaddedOutput = (char*)malloc(unpaddedLength + 1);
+    // Copy the unpadded portion and null-terminate
+    memcpy(unpaddedOutput, paddedInput, unpaddedLength);
     
-    unsigned char hmac[32]; // SHA-256 output size
-    //The code comes from: https://github.com/Mbed-TLS/mbedtls/blob/development/programs/hash/md_hmac_demo.c
-     const mbedtls_md_type_t alg = MBEDTLS_MD_SHA256;
-     const mbedtls_md_info_t *info = mbedtls_md_info_from_type(alg);
-     
-    /* prepare context and load key */
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, info, 1); // the last argument to setup is 1 to enable HMAC (not just hashing)
-    /* compute HMAC*/
-    mbedtls_md_hmac_starts(&ctx, key, sizeof(key));
-    mbedtls_md_hmac_update(&ctx, (const unsigned char*) iv, sizeof(iv));
-    mbedtls_md_hmac_update(&ctx, (const unsigned char*) input, sizeof(input));
-    mbedtls_md_hmac_finish(&ctx, hmac);
-    mbedtls_md_free(&ctx);
+    Serial.println(paddedInput);
+    unpaddedOutput[unpaddedLength] = '\0';
+}
 
-    // Convert HMAC to hex string
-    String hmac_str = byteArrayToHex(hmac, sizeof(hmac));
+// AES-CBC Encryption
+void aesEncrypt(unsigned char* key, char* paddedData, unsigned char* iv, unsigned char* cipherText) {
+  mbedtls_aes_context aes;
+  mbedtls_aes_setkey_enc(&aes, key, 256);
+  mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, strlen((const char*)paddedData), iv, (const unsigned char*)paddedData, cipherText);
+  mbedtls_aes_free(&aes);
+}
+
+void aesDecrypt(unsigned char* key, unsigned char* cipherText, unsigned char* iv, size_t cipherTextLength, unsigned char** message) {
+  *message = (unsigned char*)malloc(sizeof(unsigned char) * (cipherTextLength + 1));
+  (*message)[cipherTextLength] = 0;
+  mbedtls_aes_context aes;
+  mbedtls_aes_setkey_dec(&aes, key, 256);
+  mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, cipherTextLength, iv, cipherText, *message);
+  mbedtls_aes_free(&aes);
+  cipherText[cipherTextLength]='\0';
+}
+
+void computeHash(unsigned char* data, unsigned char* hash, size_t dataLength, const char* hashKey) {
+    size_t totalLength = dataLength + strlen(hashKey) + 2;
+    char dataToHash[totalLength];
+    snprintf(dataToHash, totalLength, "%s?%s", data, hashKey);
+    dataToHash[totalLength-1] = '\0';
+    mbedtls_sha256((unsigned char *)dataToHash, totalLength, hash, 0);
+    hash[32] = '\0';
+}
+
+void preparePayload(String data, const char* key, const char* hashKey, Adafruit_MQTT_Publish &publisher) {
+  mbedtls_ctr_drbg_context ctr_drbg;
+  char *personalization = MQTT_USERNAME;
+  mbedtls_ctr_drbg_init(&ctr_drbg);
+  int error = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,(const unsigned char *) personalization,strlen( personalization ) );
+  if(error == 0){ 
+    unsigned char iv[BLOCK_SIZE];
+    unsigned char ivcp[BLOCK_SIZE];
+    // generate the input value
+    mbedtls_ctr_drbg_random(&ctr_drbg, iv, BLOCK_SIZE);
+    
+    memcpy(ivcp, iv, BLOCK_SIZE);
+    char paddedData[BLOCK_SIZE];
+    
+    padInput(data, paddedData);
+    
+    // encryption
+    unsigned char* cipherText = (unsigned char*)malloc(strlen(paddedData) + 1);
+    aesEncrypt((unsigned char*)key, paddedData, iv, cipherText);
   
-    return hmac_str;    
-}
-
-bool verifyHMAC(const uint8_t* key, byte* iv, String& encrypted_data, String& received_hmac) {
-    String computed_hmac = computeHMAC(key, iv, encrypted_data);
-
-    // Perform a case-insensitive comparison of HMAC strings
-    return computed_hmac.equalsIgnoreCase(received_hmac);
-}
-
-
-// AES-256-CBC Encryption
-String aesEncrypt(const uint8_t* key, byte* iv, const String& str) {
-    size_t input_len = str.length();
-    size_t padded_len = input_len;
-
-    // Prepare the input data with padding
-    uint8_t input[OUTPUT_SIZE] = {0};
-    str.toCharArray((char*)input, sizeof(input));
-    addPadding(input, padded_len);
-
-    // Prepare output buffer
-    uint8_t encrypted[OUTPUT_SIZE] = {0}; // Ensure it matches the padded input size
-
-    // Initialize AES context
-    mbedtls_aes_context aes;
-    mbedtls_aes_init(&aes);
-    // Set AES encryption key
-    if (mbedtls_aes_setkey_enc(&aes, key, 256) != 0) {
-        mbedtls_aes_free(&aes);
-        return "Error: Failed to set AES encryption key";
-    }
-    // Perform AES-CBC encryption
-    if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, padded_len, iv, input, encrypted) != 0) {
-        mbedtls_aes_free(&aes);
-        return "Error: AES encryption failed";
-    }
-    // Free the AES context
-    mbedtls_aes_free(&aes);
-
-    // Convert encrypted data to a hexadecimal string
-    String encrypted_data = byteArrayToHex(encrypted, sizeof(encrypted));
-    return encrypted_data;
-}
-
-// AES-256-CBC Decryption
-String aesDecrypt(const uint8_t *key, byte* iv, uint8_t* input, size_t input_len) { 
-    size_t len = sizeof(input);
-    uint8_t output[OUTPUT_SIZE] = {0};
-    mbedtls_aes_context aes;
-    mbedtls_aes_init(&aes);
+    // iv, hash and cipherText to base64
+    size_t written = 0, outsize = 0;
+    mbedtls_base64_encode (NULL, 0, &written, ivcp, BLOCK_SIZE);
+    unsigned char* ivB64 = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_encode (ivB64, written, &outsize, ivcp, BLOCK_SIZE);
+    ivB64[written] = '\0';
     
-    // Set AES decryption key
-    if (mbedtls_aes_setkey_dec(&aes, key, 256) != 0) {
-        mbedtls_aes_free(&aes);
-        return "Error: Failed to set AES decryption key";
-    }
-    // Perform AES-CBC decryption
-    if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, input_len, iv, input, output) != 0) {
-        mbedtls_aes_free(&aes);
-        return "Error: AES decryption failed";
-    }
-    // Free the AES context
-    mbedtls_aes_free(&aes);
-
+    mbedtls_base64_encode (NULL, 0, &written, cipherText, BLOCK_SIZE);
+    unsigned char* cipherTextB64 = (unsigned char*)malloc(sizeof(char)*(written+1));
+    unsigned char* cipherTextB64cp = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_encode (cipherTextB64, written, &outsize, cipherText, BLOCK_SIZE+1);
+    mbedtls_base64_encode (cipherTextB64cp, written, &outsize, cipherText, BLOCK_SIZE+1);
+    cipherTextB64[written] = '\0';    
+    cipherTextB64cp[written] = '\0';    
     
-    // Remove padding
-    removePadding(output, len);
+    //Prepare hashing
+    unsigned char hash[33];
+    computeHash(cipherTextB64cp, hash, strlen((const char*) cipherTextB64cp), hashKey);
+    
+    mbedtls_base64_encode (NULL, 0, &written, hash, 32);
+    unsigned char* hashB64 = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_encode (hashB64, written, &outsize, hash, 32);
+    hashB64[written] = '\0';
+    
+    size_t totalLength = strlen((const char*)ivB64) + strlen((const char*)hashB64) + strlen((const char*)cipherTextB64) + 3;
+    char* result = (char*)malloc(totalLength);
+    
+    snprintf(result, totalLength, "%s?%s?%s", cipherTextB64, hashB64, ivB64);
+    publishData(publisher, result);
+    free(cipherText);
+    free(cipherTextB64);
+    free(hashB64);
+    free(ivB64);
 
-    // Convert decrypted byte array to string
-    String decrypted_data = "";
-    for (size_t i = 0; i < len; i++) {
-        decrypted_data += (char)output[i];
-    }
-
-    return decrypted_data;
+    char* tmp = processReceivedPayload(result, key, hashKey);
+    //Serial.println(tmp);
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+  }
+  mbedtls_ctr_drbg_free(&ctr_drbg);
 }
 
-String processPayload(const String& payload) {
-    // Step 1: Split payload
-    int iv_end = payload.indexOf('+');
-    int data_end = payload.lastIndexOf('+');
+void publishData(Adafruit_MQTT_Publish &publisher, char* result) {
+   if (!publisher.publish(result)) {
+    Serial.print("Failed to publish data!");
+    Serial.println(result);
+  } else {
+    Serial.print("Sensor published: ");
+    Serial.println(result);
+  }
+}
 
-    if (iv_end == -1 || data_end == -1 || data_end <= iv_end) {
-        Serial.println("Error: Invalid payload format.");
+// Process the received payload from `publishData`
+char* processReceivedPayload(char* p, const char* key, const char* hKey) {
+    String payload(p);
+    size_t written = 0, outsize = 0, cipherTextLength = 0;
+    int delimiterPos1 = payload.indexOf('?');
+    int delimiterPos2 = payload.lastIndexOf('?');
+
+     if (delimiterPos1 == -1 || delimiterPos2 <= delimiterPos1) {
         return "Error: Invalid payload format.";
     }
-
-    // Extract components
-    String iv_hex = payload.substring(0, iv_end);
-    String encrypted_data = payload.substring(iv_end + 1, data_end);
-    String received_hmac = payload.substring(data_end + 1);
-
-    // Step 2: Convert IV from hex to byte array
-    uint8_t iv[BLOCK_SIZE] = {0};
-    for (size_t i = 0; i < iv_hex.length() / 2; i++) {
-        iv[i] = strtol(iv_hex.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
-    }
-
-    // Step 3: Verify HMAC
-    if (!verifyHMAC((uint8_t*)hmac_key, iv, encrypted_data, received_hmac)) {
-        Serial.println("HMAC verification failed!");
-        return "HMAC verification failed!";
-    }
-
-    // Step 4: Decrypt the data
-    size_t len = encrypted_data.length() / 2; // Convert hex to byte length
-    uint8_t encrypted_bytes[OUTPUT_SIZE] = {0};
-
-    // Convert encrypted hex string to byte array
-    for (size_t i = 0; i < len; i++) {
-        encrypted_bytes[i] = strtol(encrypted_data.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
-    }
-
-    // Perform decryption
-    String decrypted_data = aesDecrypt((uint8_t*)aes_key, iv, encrypted_bytes, sizeof(encrypted_bytes));   // Step 6: Store or log the decrypted data
-    return decrypted_data;
-}
-
-
-void publishData(Adafruit_MQTT_Publish &publisher, String s) {
-  byte iv[BLOCK_SIZE] = {0}; // Initialization Vector
-  memcpy(iv, &nonce, sizeof(nonce)); // Use the nonce as part of the IV
-  String payload = byteArrayToHex(iv, sizeof(iv)); 
-  
-  String encrypted_data = aesDecrypt(aes_key, iv, (const char*)s, s.length());
-
-  if (encrypted_data.length()) {
-    String hmac = computeHMAC((uint8_t *)hmac_key, iv, encrypted_data);
-
-    // Transmit: IV + Encrypted Data + HMAC
-    String payload = payload + "+" + encrypted_data + "+" + hmac;
+    String cipherTextB64 = payload.substring(0, delimiterPos1);
+    String hashB64 = payload.substring(delimiterPos1 + 1, delimiterPos2);
+    String ivB64 = payload.substring(delimiterPos2 + 1);
     
-    if (!publisher.publish(payload.c_str())) {
-      Serial.println("Failed to publish data!");
-    } else {    
-      Serial.println("Sensor published: " + payload);
+    // The cyphered message
+    mbedtls_base64_decode(NULL, 0, &written, (const unsigned char *) cipherTextB64.c_str(), cipherTextB64.length());
+    unsigned char* cipherText = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_decode(cipherText, written, &cipherTextLength, (const unsigned char *) cipherTextB64.c_str(), cipherTextB64.length());
+    cipherText[written] = 0;
+    
+    // The iv
+    mbedtls_base64_decode(NULL, 0, &written, (const unsigned char *) ivB64.c_str(), ivB64.length());
+    unsigned char* iv = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_decode(iv, written, &outsize, (const unsigned char *) ivB64.c_str(), ivB64.length());
+    iv[written] = 0;
+
+    // verify hash
+    unsigned char computedHash[33];
+    computeHash((unsigned char*)cipherTextB64.c_str(), computedHash, cipherTextB64.length(), hKey);
+    
+    mbedtls_base64_encode (NULL, 0, &written, computedHash, strlen((const char*) computedHash));
+    unsigned char* computedHashB64 = (unsigned char*)malloc(sizeof(char)*(written+1));
+    mbedtls_base64_encode (computedHashB64, written, &outsize, computedHash, strlen((const char*) computedHash));
+    computedHashB64[written] = '\0';    
+    //Serial.println((char*)computedHashB64);
+    //Serial.println(hashB64.c_str());
+
+    if(strncmp((const char*)computedHashB64, hashB64.c_str(), strlen((const char*)computedHashB64)) == 0){
+      unsigned char* paddedData;
+      aesDecrypt((unsigned char*)key, cipherText, iv, cipherTextLength, &paddedData);  
+      char* originalData;
+      unpadInput((char*)paddedData, originalData);
+      free(paddedData);
+      free(cipherText);
+      free(computedHashB64);
+      free(iv);
+      return originalData;
     }
-  }
+    free(cipherText);
+    free(computedHashB64);
+    free(iv);
+    return "";
 }
 
 void updateRedLed() {
@@ -325,19 +312,15 @@ void manageButton() {
     if (buttonState == LOW) { // Check if the button is pressed (LOW because of pull-up)
       isSubscribed = !isSubscribed; // Toggle LED state
       if (isSubscribed) {
-        // subscribe to topics
-        mqtt.subscribe(&other_humidity_subscriber);
-        mqtt.subscribe(&other_threshold_subscriber);        
+        // Subscribe to topics
         digitalWrite(WHITE_LED_PIN, HIGH); // Update LED
         Serial.println("Subscribed!");
-      } else {        
-        mqtt.unsubscribe(&other_humidity_subscriber);
-        mqtt.unsubscribe(&other_threshold_subscriber);        
-        digitalWrite(WHITE_LED_PIN, HIGH); // Update LED
+      } else {
+        digitalWrite(WHITE_LED_PIN, LOW); // Update LED
         Serial.println("Unsubscribed!");
       }
       updateRedLed();
-    }    
+    }
     lastButtonState = buttonState; // Save the current button state
   }
 }
@@ -345,7 +328,12 @@ void manageButton() {
 void humidityCallback(char* payload, uint16_t len) {
   if (isSubscribed) {
     payload[len] = '\0';  // Null-terminate payload
-    currentOtherHumidity = atof(payload); // Parse as float
+    Serial.println(payload);
+    char* data = processReceivedPayload(payload, ESP2_ENCRYPT, ESP2_HASH);
+    if (data == "") {
+      return;
+    }
+    currentOtherHumidity = atof(data); // Parse as float
     Serial.print("Received humidity from other ESP: ");
     Serial.println(currentOtherHumidity);
     updateRedLed();
@@ -355,7 +343,11 @@ void humidityCallback(char* payload, uint16_t len) {
 void thresholdCallback(char* payload, uint16_t len) {
   if (isSubscribed) {
     payload[len] = '\0';  // Null-terminate payload
-    currentOtherThreshold = atof(payload); // Parse as float
+    char* data = processReceivedPayload(payload, SERVER_ENCRYPT, SERVER_HASH);
+    if (data == "") {
+      return;
+    }
+    currentOtherThreshold = atof(data); // Parse as float
     Serial.print("Received threshold from other ESP: ");
     Serial.println(currentOtherThreshold);
     updateRedLed();
@@ -364,24 +356,25 @@ void thresholdCallback(char* payload, uint16_t len) {
 
 void setup() {
   Serial.begin(9600); // Initialize serial communication
-  
-  randomSeed(analogRead(0)); // Seed the random generator
-  
-  pinMode(RED_LED_PIN, OUTPUT); 
+
+  pinMode(RED_LED_PIN, OUTPUT);
   pinMode(WHITE_LED_PIN, OUTPUT); // Set LED pin as output
   pinMode(BUTTON_PIN, INPUT_PULLUP); // Set button pin as input with internal pull-up
   digitalWrite(RED_LED_PIN, LOW); // Start with the LED off
   digitalWrite(WHITE_LED_PIN, LOW); // Start with the LED off
-  
+
+  mbedtls_entropy_init(&entropy);
+
   dht.begin(); // Start the DHT sensor
   setup_wifi();
 
   // Set callback functions
   other_humidity_subscriber.setCallback(humidityCallback);
   other_threshold_subscriber.setCallback(thresholdCallback);
-  
+
   mqtt.connect();
-  initializeNonce();
+  mqtt.subscribe(&other_humidity_subscriber);
+  mqtt.subscribe(&other_threshold_subscriber);
 }
 
 void loop() {
@@ -393,18 +386,22 @@ void loop() {
   mqtt.processPackets(2000); // Process incoming messages
 
   manageButton();
-  incrementNonce();
-  
+
   // Temperature and Humidity Reading
   float humidity = dht.readHumidity(); // Read humidity
   float temperature = dht.readTemperature(); // Read temperature in Celsius
-  
-  // Check if any reads failed and retry
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Failed to read from DHT sensor!");
-  } else {  
-    publishData(humidity_publisher, String(humidity));
-    publishData(temperature_publisher, String(temperature));
+
+  if(!true) {
+    preparePayload("BEGIN", ESP1_ENCRYPT, ESP1_HASH, humidity_publisher);
+    
+  } else {
+    // Check if any reads failed and retry
+    if (isnan(humidity) || isnan(temperature)) {
+      Serial.println("Failed to read from DHT sensor!");
+    } else {
+      preparePayload(String(humidity), ESP1_ENCRYPT, ESP1_HASH, humidity_publisher);
+      //preparePayload(String(temperature), ESP1_ENCRYPT, ESP1_HASH, temperature_publisher);
+    }
   }
   delay(1000);
 }

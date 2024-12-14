@@ -6,27 +6,13 @@ from datetime import datetime
 from matplotlib.animation import FuncAnimation
 import threading
 import time
+from utils import *
 
 # MQTT broker configuration
-BROKER = "192.168.129.56"
+BROKER = "192.168.76.56"
 PORT = 8008
 USERNAME = "server"
 PASSWORD = "nxPd3T25Jt2eYDTT82n9d78xQ" 
-
-KEYS = {
-    "esp1": {
-        "encrypt": "CmvgVtFuSNmQMCaRmLzzrCaPBFphSuYr",
-        "hash": "LEaiLUukPRTGtPQWhMuxdcVwEjgrcxBG"
-    }, 
-    "esp2": {
-        "encrypt": "dgCGZGDCRwEVSczHrttbcpMALwweVxnP",
-        "hash": "JAYWBfudauenBjnPUENgnEeYXmLnwSjN"
-    }, 
-    "server": {
-        "encrypt": "xSjxNewFTELfqmDdbgAWrDkTfNAfNYNs",
-        "hash": "SzMVxXdSkmvmxmFGHrUJQspxHvCxKqFW"
-    }
-}
 
 # Topics
 ESP_TOPICS = {
@@ -78,14 +64,15 @@ def on_message(client, userdata, msg):
 
     if esp_name and value_type:
         try:
-            value = float(msg.payload.decode())
+            decrypted_data = process_received_payload(msg.payload.decode(), esp_name)
+            value = float(decrypted_data)
             timestamp = datetime.now().strftime("%H:%M:%S")
             with data_lock:
                 # Choose the correct time list
                 time_key = f"time_{value_type}"
 
                 # Synchronize lengths
-                if len(data[esp_name][time_key]) >= 100:  # Limit to 100 points
+                if len(data[esp_name][time_key]) >= 50:  # Limit to 50 points
                     data[esp_name][time_key].pop(0)
                     data[esp_name][value_type].pop(0)
 
@@ -116,7 +103,8 @@ def update_threshold(esp, value):
     with data_lock:
         data[esp]["threshold"] = int(value)
     topic = ESP_TOPICS[esp]["threshold"]
-    mqtt_client.publish(topic, str(value))
+    threshold_data = prepare_payload(str(data[esp]["threshold"]))
+    mqtt_client.publish(topic, threshold_data)
     print(f"Updated {esp} threshold to {value} and sent to {topic}")
 
 # Tkinter GUI with integrated sliders and plots
@@ -199,7 +187,6 @@ def animate(i):
                 hum_ax.tick_params(axis="x", rotation=45)
             else:
                 print(f"Skipping humidity plot for {esp} due to mismatched lengths")
-
     fig.tight_layout()
     canvas.draw()
 
@@ -209,8 +196,8 @@ def publish_thresholds():
         with data_lock:
             for esp, sensors in data.items():
                 topic = ESP_TOPICS[esp]["threshold"]
-                threshold_value = sensors["threshold"]
-                mqtt_client.publish(topic, str(threshold_value))
+                threshold_value = prepare_payload(str(sensors["threshold"]))
+                mqtt_client.publish(topic, threshold_value)
                 print(f"Published {esp} threshold: {threshold_value} to {topic}")
         time.sleep(1)  # Wait for 1 second before the next publish
 

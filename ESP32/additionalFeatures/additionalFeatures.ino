@@ -14,10 +14,10 @@
 #define WIFI_PASSWORD    "manououvreferme"
 
 // MQTT Configuration
-#define MQTT_SERVER      "192.168.129.56" // your MQTT server address
+#define MQTT_SERVER      "192.168.79.56" // your MQTT server address
 #define MQTT_PORT        8008 // Default MQTT port (change if necessary)
-#define MQTT_USERNAME    ""                // Leave blank for anonymous
-#define MQTT_PASSWORD    ""                // Leave blank for anonymous
+#define MQTT_USERNAME    "esp1"                // Leave blank for anonymous
+#define MQTT_PASSWORD    "HUS49mVnyF54CT8vh889k8Aay"                // Leave blank for anonymous
 
 // Device-Specific Topics
 #define HUMIDITY_TOPIC "esp2/humidity"
