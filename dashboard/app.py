@@ -9,7 +9,7 @@ import time
 from utils import *
 
 # MQTT broker configuration
-BROKER = "192.168.76.56"
+BROKER = "192.168.79.56"
 PORT = 8008
 USERNAME = "server"
 PASSWORD = "nxPd3T25Jt2eYDTT82n9d78xQ" 
