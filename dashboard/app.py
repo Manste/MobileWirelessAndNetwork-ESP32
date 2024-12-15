@@ -64,7 +64,9 @@ def on_message(client, userdata, msg):
 
     if esp_name and value_type:
         try:
-            decrypted_data = process_received_payload(msg.payload.decode(), esp_name)
+            tmp_data = msg.payload.decode()
+            print("e received: ", tmp_data)
+            decrypted_data = process_received_payload(tmp_data, esp_name)
             value = float(decrypted_data)
             timestamp = datetime.now().strftime("%H:%M:%S")
             with data_lock:
