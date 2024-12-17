@@ -91,8 +91,3 @@ def prepare_payload(threshold):
 
     return f"{ciphertext_b64}.{hash_b64}.{iv_b64}"
 
-
-#data = "moCNxNMCz/lpa/uW+om7Cg==.mVRLP/v5bcj9V2Ui4CJk+P3Sh3d8DvzIqRZZHG6FJS0=.JYhVFFMGlQduc01CtaWQlA=="
-data = prepare_payload("11.30")
-print(data)
-print(process_received_payload(data, "server"))

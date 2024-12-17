@@ -74,7 +74,7 @@ def on_message(client, userdata, msg):
                 time_key = f"time_{value_type}"
 
                 # Synchronize lengths
-                if len(data[esp_name][time_key]) >= 50:  # Limit to 50 points
+                if len(data[esp_name][time_key]) >= 30:  # Limit to 50 points
                     data[esp_name][time_key].pop(0)
                     data[esp_name][value_type].pop(0)
 

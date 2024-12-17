@@ -24,17 +24,17 @@
 // MQTT Configuration
 #define MQTT_SERVER      "192.168.79.56" // your MQTT server address
 #define MQTT_PORT        8008 // Default MQTT port
-#define MQTT_USERNAME    "esp1"                // esp2
-#define MQTT_PASSWORD    "HUS49mVnyF54CT8vh889k8Aay"// 3wbjiA9bU837e6UBv5hE8AP5S
+#define MQTT_USERNAME    "esp2"
+#define MQTT_PASSWORD    "3wbjiA9bU837e6UBv5hE8AP5S"
 
 // Device-Specific Topics
-#define HUMIDITY_TOPIC "esp1/humidity"
-#define TEMPERATURE_TOPIC "esp1/temperature"
-#define THRESHOLD_TOPIC "esp1/threshold"
+#define HUMIDITY_TOPIC "esp2/humidity"
+#define TEMPERATURE_TOPIC "esp2/temperature"
+#define THRESHOLD_TOPIC "esp2/threshold"
 
 // Subscribed Topics for ESP2
-#define OTHER_HUMIDITY_TOPIC "esp2/humidity"
-#define OTHER_THRESHOLD_TOPIC "esp2/threshold"
+#define OTHER_HUMIDITY_TOPIC "esp1/humidity"
+#define OTHER_THRESHOLD_TOPIC "esp1/threshold"
 
 #define ESP1_ENCRYPT "H50Eoq18OKL+QcpnUNS4p7qwYLWBzWUZm0V+n85mjLI="
 #define ESP1_HASH "LEaiLUukPRTGtPQWhMuxdcVwEjgrcxBG"
@@ -249,6 +249,8 @@ char* processReceivedPayload(char* p, unsigned char* key, const char* hashKey) {
     mbedtls_base64_encode (computedHashB64, written, &outsize, computedHash, strlen((const char*) computedHash));
     computedHashB64[written] = '\0';  
 
+    //Serial.println((char*)computedHashB64);
+    //Serial.println((char*)hashB64.c_str());
     if(strcmp((const char*) computedHashB64, hashB64.c_str()) == 0){
       unsigned char* message = (unsigned char*)malloc(sizeof(char)*(cipherTextLength+1));
       message[cipherTextLength] = 0;
@@ -306,7 +308,7 @@ void manageButton() {
 void humidityCallback(char* payload, uint16_t len) {
   if (isSubscribed) {
     payload[len] = '\0';  // Null-terminate payload
-    char* data = processReceivedPayload(payload, esp2Key, ESP2_HASH);
+    char* data = processReceivedPayload(payload, esp1Key, ESP1_HASH);
     if (data == "") {
       return;
     }
@@ -386,8 +388,8 @@ void loop() {
   if (isnan(humidity) || isnan(temperature)) {
     Serial.println("Failed to read from DHT sensor!");
   } else {
-    preparePayload(String(humidity), esp1Key, ESP1_HASH, humidity_publisher);
-    preparePayload(String(temperature), esp1Key, ESP1_HASH, temperature_publisher); 
+    preparePayload(String(humidity), esp2Key, ESP2_HASH, humidity_publisher);
+    preparePayload(String(temperature), esp2Key, ESP2_HASH, temperature_publisher); 
   }
   delay(1000);
 }
