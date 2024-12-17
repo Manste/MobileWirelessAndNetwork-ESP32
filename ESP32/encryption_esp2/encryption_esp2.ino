@@ -248,9 +248,6 @@ char* processReceivedPayload(char* p, unsigned char* key, const char* hashKey) {
     unsigned char* computedHashB64 = (unsigned char*)malloc(sizeof(char)*(written+1));
     mbedtls_base64_encode (computedHashB64, written, &outsize, computedHash, strlen((const char*) computedHash));
     computedHashB64[written] = '\0';  
-
-    //Serial.println((char*)computedHashB64);
-    //Serial.println((char*)hashB64.c_str());
     if(strcmp((const char*) computedHashB64, hashB64.c_str()) == 0){
       unsigned char* message = (unsigned char*)malloc(sizeof(char)*(cipherTextLength+1));
       message[cipherTextLength] = 0;

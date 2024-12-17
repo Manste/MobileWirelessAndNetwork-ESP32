@@ -54,7 +54,7 @@ def verify_hash(data:str, received_hash:bytes, key:str) -> bool:
     computed_hash = compute_hash(data, key)
     return computed_hash == received_hash
 
-def process_received_payload(payload, esp_name):
+def process_received_payload(payload:str, esp_name:str)->str:
     key = KEYS[esp_name]["encrypt"]
     hash_key = KEYS[esp_name]["hash"]
 
@@ -73,7 +73,7 @@ def process_received_payload(payload, esp_name):
     
     return float(aes_decrypt(key, iv, ciphertext))
 
-def prepare_payload(threshold):
+def prepare_payload(threshold: str)->str:
     key = KEYS["server"]["encrypt"]
     hash_key = KEYS["server"]["hash"]
     iv = get_random_bytes(BLOCK_SIZE)
